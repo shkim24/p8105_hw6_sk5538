@@ -1,0 +1,128 @@
+---
+title: "hw6"
+author: "Senna"
+date: "2024-11-30"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(broom)
+library(ggplot2)
+library(purrr)
+```
+
+
+
+## Problem 1
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+The boostrap is helpful when you’d like to perform inference for a parameter / value / summary that doesn’t have an easy-to-write-down distribution in the usual repeated sampling framework. We’ll focus on a simple linear regression with tmax as the response and tmin as the predictor, and are interested in the distribution of two quantities estimated from these data:
+
+r^2
+log(β^0∗β^1)
+Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r^2
+ and log(β^0∗β^1)
+. Note: broom::glance() is helpful for extracting r^2
+ from a fitted regression, and broom::tidy() (with some additional wrangling) should help in computing log(β^0∗β^1)
+
+```{r}
+n_boot = 5000
+
+boot_results = replicate (n_boot, {
+  sample = weather_df %>% sample_frac(replace = TRUE) #why true?
+  
+  model = lm(tmax ~tmin, data= sample)
+  
+  r_sqr = glance(model)$r.squared
+  
+  coefs = tidy(model)
+  log_beta = log(coefs$estimate[1] * coefs$estimate[2])
+  
+  c(r_sqr, log_beta)
+  
+}, simplify = "matrix")
+
+boot_results = t(boot_results)
+colnames(boot_results) = c("r_sqr", "log_beta")
+
+bootstrap_df = as.data.frame(boot_results)
+```
+
+```{r}
+ci_r_sqr = quantile(bootstrap_df$r_sqr, probs = c(0.025,0.975))
+ci_log_beta = quantile(bootstrap_df$log_beta, probs = c(0.025, 0.975))
+
+print("95% CI for R^2:")
+print(ci_r_sqr)
+
+print("95% CI for log(β^0 * β^1):")
+print(ci_log_beta)
+
+```
+```{r}
+ggplot(bootstrap_df, aes(x = r_sqr))+
+  geom_density (color ='red', alpha = 0.5)+
+  labs(title = "bootstap distribution of R^2", x="R^2", y="density")
+
+ggplot(bootstrap_df, aes(x = log_beta))+
+  geom_density (color='blue',alpha = 0.5)+
+  labs(title = "bootstap distribution of log(β^0 * β^1)", x="R^2", y="density")
+```
+
+
+## Problem 2
+
+```{r}
+homicide_df = read.csv("./data/homicide-data.csv")|>
+  mutate(
+    city_state = paste(city, state, sep=","),
+    solved = if_else(disposition == "Closed by arrest",1,0),
+    victim_age = as.numeric(victim_age),
+    victim_sex = as.factor(victim_sex),
+    victim_race = as.factor(victim_race),
+    solved = as.factor(solved)
+  )|>
+  filter(
+    !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"),
+    victim_race %in% c("White", "Black"),
+    !is.na(victim_age)
+  )
+```
+```{r}
+baltimore_df = homicide_df |>
+  filter(city_state == "Baltimore, MD")
+
+baltimore_model = glm(
+  solved ~ victim_age + victim_sex + victim_race,
+  family = binomial(),
+  data = baltimore_df
+)
+
+baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE) # true true?
+
+sex_diff = baltimore_results|>
+  filter (term == "victim_sexMale")|>
+  select(estimate = estimate, conf.low, conf.high)
+
+print(sex_diff)
+```
+
+
+
+
+
+
+
+
