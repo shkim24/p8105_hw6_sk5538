@@ -145,6 +145,11 @@ ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
 ```
 COMMENT ON THE PLOT
 
+## Problem 3
+
+```{r}
+bw_df = read.csv("./data/birthweight.csv")
+```
 
 
 
