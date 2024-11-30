@@ -1,21 +1,32 @@
----
-title: "hw6"
-author: "Senna"
-date: "2024-11-30"
-output: github_document
----
+hw6
+================
+Senna
+2024-11-30
 
-```{r}
+``` r
 library(tidyverse)
+```
+
+    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ## ✔ dplyr     1.1.4     ✔ readr     2.1.5
+    ## ✔ forcats   1.0.0     ✔ stringr   1.5.1
+    ## ✔ ggplot2   3.5.1     ✔ tibble    3.2.1
+    ## ✔ lubridate 1.9.3     ✔ tidyr     1.3.1
+    ## ✔ purrr     1.0.2     
+    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ## ✖ dplyr::filter() masks stats::filter()
+    ## ✖ dplyr::lag()    masks stats::lag()
+    ## ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+``` r
 library(broom)
 library(ggplot2)
 library(purrr)
 ```
 
-
-
 ## Problem 1
-```{r}
+
+``` r
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -29,7 +40,13 @@ weather_df =
   select(name, id, everything())
 ```
 
-```{r}
+    ## using cached file: C:\Users\Senna\AppData\Local/R/cache/R/rnoaa/noaa_ghcnd/USW00094728.dly
+
+    ## date created (size, mb): 2024-11-29 22:07:49.313665 (8.685)
+
+    ## file min/max dates: 1869-01-01 / 2024-11-30
+
+``` r
 n_boot = 5000
 
 boot_results = replicate (n_boot, {
@@ -52,31 +69,54 @@ colnames(boot_results) = c("r_sqr", "log_beta")
 bootstrap_df = as.data.frame(boot_results)
 ```
 
-```{r}
+``` r
 ci_r_sqr = quantile(bootstrap_df$r_sqr, probs = c(0.025,0.975))
 ci_log_beta = quantile(bootstrap_df$log_beta, probs = c(0.025, 0.975))
 
 print("95% CI for R^2:")
-print(ci_r_sqr)
-
-print("95% CI for log(β^0 * β^1):")
-print(ci_log_beta)
-
 ```
-```{r}
+
+    ## [1] "95% CI for R^2:"
+
+``` r
+print(ci_r_sqr)
+```
+
+    ##      2.5%     97.5% 
+    ## 0.8931807 0.9273063
+
+``` r
+print("95% CI for log(β^0 * β^1):")
+```
+
+    ## [1] "95% CI for log(β^0 * β^1):"
+
+``` r
+print(ci_log_beta)
+```
+
+    ##     2.5%    97.5% 
+    ## 1.966575 2.059841
+
+``` r
 ggplot(bootstrap_df, aes(x = r_sqr))+
   geom_density (color ='red', alpha = 0.5)+
   labs(title = "bootstap distribution of R^2", x="R^2", y="density")
+```
 
+![](hw6_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
+``` r
 ggplot(bootstrap_df, aes(x = log_beta))+
   geom_density (color='blue',alpha = 0.5)+
   labs(title = "bootstap distribution of log(β^0 * β^1)", x="R^2", y="density")
 ```
 
+![](hw6_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
 
 ## Problem 2
 
-```{r}
+``` r
 homicide_df = read.csv("./data/homicide-data.csv")|>
   mutate(
     city_state = paste(city, state, sep=","),
@@ -86,7 +126,14 @@ homicide_df = read.csv("./data/homicide-data.csv")|>
     victim_race = as.factor(victim_race),
     solved = as.factor(solved)
   )
+```
 
+    ## Warning: There was 1 warning in `mutate()`.
+    ## ℹ In argument: `victim_age = as.numeric(victim_age)`.
+    ## Caused by warning:
+    ## ! NAs introduced by coercion
+
+``` r
 filtered = homicide_df|>
   filter(
     !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"),
@@ -94,7 +141,8 @@ filtered = homicide_df|>
     !is.na(victim_age)
   )
 ```
-```{r}
+
+``` r
 baltimore_df = filtered |>
   filter(city_state == "Baltimore,MD")
 
@@ -112,7 +160,13 @@ sex_diff = baltimore_results|>
 
 print(sex_diff)
 ```
-```{r}
+
+    ## # A tibble: 1 × 3
+    ##   estimate conf.low conf.high
+    ##      <dbl>    <dbl>     <dbl>
+    ## 1    0.426    0.324     0.558
+
+``` r
 city_model = filtered|>
   group_by(city_state)|>
    filter(
@@ -128,7 +182,16 @@ city_model = filtered|>
   filter(term == "victim_sexMale")|>
   select(city_state, estimate = estimate, conf.low, conf.high)
 ```
-```{r}
+
+    ## Warning: There were 43 warnings in `mutate()`.
+    ## The first warning was:
+    ## ℹ In argument: `results = map(model, ~tidy(.x, conf.int = TRUE, exp = TRUE))`.
+    ## ℹ In group 1: `city_state = "Albuquerque,NM"`.
+    ## Caused by warning:
+    ## ! glm.fit: fitted probabilities numerically 0 or 1 occurred
+    ## ℹ Run `dplyr::last_dplyr_warnings()` to see the 42 remaining warnings.
+
+``` r
 ordered_results = city_model|> arrange(estimate)
 
 ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
@@ -143,11 +206,6 @@ ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
     axis.text.x = element_text(angle = 90, hjust = 1)  
   )
 ```
-COMMENT ON THE PLOT
 
-
-
-
-
-
-
+![](hw6_files/figure-gfm/unnamed-chunk-9-1.png)<!-- --> COMMENT ON THE
+PLOT
