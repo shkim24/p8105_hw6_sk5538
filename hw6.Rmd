@@ -214,59 +214,41 @@ model3 <- lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + b
 ```
 
 
-```{r}
-set.seed(123)
 
-cv_splits = tibble(
-  splits = replicate(
-    100,
-    initial_split(bw_df, prop = 0.8), # 80% training, 20% testing
-    simplify = FALSE
-  )
-)
-
-calc_rmse = function (split, model_formula) {
-  train = analysis(split)
-  test = analysis(split)
-  
-  model = lm(model_formula, data = train)
-  
-  pred = predict(model, newdata = test)
-  
-  rmse = sqrt(mean((test$bwt - pred)^2, na.rm=TRUE))
-  
-  return(rmse)
-}
-```
 
 ```{r}
-cv_res <- cv_splits |>
+cv_df = 
+  crossv_mc(bw_df, 100)
+
+cv_df =cv_df |> 
   mutate(
-    rmse_model_proposed = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace)),
-    rmse_model2 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ blength + gaweeks)),
-    rmse_model3 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex))
-  )
-
-cv_res |>
-  summarise(
-    mean_rmse_proposed = mean(rmse_model_proposed),
-    mean_rmse_model2 = mean(rmse_model2),
-    mean_rmse_model3 = mean(rmse_model3)
-  )
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
 ```
+
 ```{r}
-rmse_long <- cv_res |>
-  select(rmse_model_proposed, rmse_model2, rmse_model3) |>
-  pivot_longer(cols = everything(), names_to = "model", values_to = "rmse")
-
-# Plot RMSE distributions
-ggplot(rmse_long, aes(x = model, y = rmse)) +
-  geom_boxplot() +
-  labs(title = "RMSE Comparison Across Models", x = "Model", y = "RMSE") +
-  theme_minimal()
+cv_df = cv_df |> 
+  mutate(
+    model1  = map(train, \(df) lm(bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace, data = df)),
+    model2  = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    model3  = map(train, \(df) lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = df))) |> 
+  mutate(
+    rmse_1 = map2_dbl(model1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_2 = map2_dbl(model2, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_3 = map2_dbl(model3, test, \(mod, df) rmse(model = mod, data = df)))
 ```
 
-
+```{r}
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
 
 
 
