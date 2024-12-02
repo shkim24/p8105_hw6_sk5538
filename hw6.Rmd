@@ -5,13 +5,16 @@ date: "2024-11-30"
 output: github_document
 ---
 
-```{r}
+Necessary packages are loaded.
+```{r, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(broom)
 library(ggplot2)
 library(purrr)
 library(modelr)
 library(rsample)
+
+set.seed(123)
 ```
 
 
@@ -31,50 +34,80 @@ weather_df =
   select(name, id, everything())
 ```
 
+# estimates
+# plot the distribution of estimates, describe these in words.
+# identify the 2.5% and 97.5% quantiles to provide a 95% CI for each estimate. 
+
 ```{r}
-n_boot = 5000
+boot_weather = weather_df |> 
+  bootstrap(n = 5000) |> 
+  mutate(
+    models = map(strap, \(df) lm(tmax ~ tmin, data = df)),
+    glance_results = map(models, broom::glance),
+    tidy_results = map(models, broom::tidy)
+  ) |> 
+  select(-strap, -models) |> 
+  unnest(cols = c(glance_results, tidy_results), names_sep = "_") 
 
-boot_results = replicate (n_boot, {
-  sample = weather_df %>% sample_frac(replace = TRUE) #why true?
-  
-  model = lm(tmax ~tmin, data= sample)
-  
-  r_sqr = glance(model)$r.squared
-  
-  coefs = tidy(model)
-  log_beta = log(coefs$estimate[1] * coefs$estimate[2])
-  
-  c(r_sqr, log_beta)
-  
-}, simplify = "matrix")
 
-boot_results = t(boot_results)
-colnames(boot_results) = c("r_sqr", "log_beta")
+boot_weather|> 
+  summarize(
+    r_squared_mean = mean(glance_results_r.squared, na.rm = TRUE),
+    r_squared_lower_ci = quantile(glance_results_r.squared, 0.025, na.rm = TRUE),
+    r_squared_upper_ci = quantile(glance_results_r.squared, 0.975, na.rm = TRUE),
+    log_product = ifelse(
+      all(c("(Intercept)", "tmin") %in% tidy_results_term),
+      tidy_results_estimate[tidy_results_term == "(Intercept)"] * 
+      tidy_results_estimate[tidy_results_term == "tmin"],
+      NA_real_
+    ),
+    log_product_mean = mean(log(log_product), na.rm = TRUE),
+    log_product_lower_ci = quantile(log(log_product), 0.025, na.rm = TRUE),
+    log_product_upper_ci = quantile(log(log_product), 0.975, na.rm = TRUE)
+  )
 
-bootstrap_df = as.data.frame(boot_results)
 ```
 
+
 ```{r}
-ci_r_sqr = quantile(bootstrap_df$r_sqr, probs = c(0.025,0.975))
-ci_log_beta = quantile(bootstrap_df$log_beta, probs = c(0.025, 0.975))
-
-print("95% CI for R^2:")
-print(ci_r_sqr)
-
-print("95% CI for log(β^0 * β^1):")
-print(ci_log_beta)
-
+boot_results = boot_weather|>
+  filter(tidy_results_term %in% c("(Intercept)", "tmin")) |> 
+  group_by(glance_results_r.squared) |> 
+  summarize(
+    r_squared = glance_results_r.squared,
+    log_product = log(
+      tidy_results_estimate[tidy_results_term == "(Intercept)"] *
+      tidy_results_estimate[tidy_results_term == "tmin"]
+    )
+  )
 ```
+###### r2 plot
 ```{r}
-ggplot(bootstrap_df, aes(x = r_sqr))+
+ggplot(boot_results, aes(x = r_squared)) +
   geom_density (color ='red', alpha = 0.5)+
-  labs(title = "bootstap distribution of R^2", x="R^2", y="density")
-
-ggplot(bootstrap_df, aes(x = log_beta))+
-  geom_density (color='blue',alpha = 0.5)+
-  labs(title = "bootstap distribution of log(β^0 * β^1)", x="R^2", y="density")
+  theme_minimal() +
+  labs(
+    title = "Distribution of R^2 from Bootstrapped Samples",
+    x = expression(R^2),
+    y = "Frequency"
+  )
 ```
 
+###### log product plot
+```{r}
+ggplot(boot_results, aes(x = log_product)) +
+  geom_density (color ='blue', alpha = 0.5)+
+  theme_minimal() +
+  labs(
+    title = "Distribution of log(β^0 ∗ β^1) from Bootstrapped Samples",
+    x = expression(log(beta^0 * beta^1)),
+    y = "Frequency"
+  )
+```
+
+The log product follows a normal distribution. We had n=5000 for bootstrapping, which is a large sample size. This invokes the Central Limit Theorem.
+
+r^2 plot shows a left skew. r^2 values are bounded between 0 and 1, and in our case, the estimate is close to 1. 
 
 ## Problem 2
 
@@ -96,6 +129,7 @@ filtered = homicide_df|>
     !is.na(victim_age)
   )
 ```
+
 ```{r}
 baltimore_df = filtered |>
   filter(city_state == "Baltimore,MD")
@@ -114,6 +148,7 @@ sex_diff = baltimore_results|>
 
 print(sex_diff)
 ```
+
 ```{r}
 city_model = filtered|>
   group_by(city_state)|>
@@ -130,6 +165,7 @@ city_model = filtered|>
   filter(term == "victim_sexMale")|>
   select(city_state, estimate = estimate, conf.low, conf.high)
 ```
+
 ```{r}
 ordered_results = city_model|> arrange(estimate)
 
