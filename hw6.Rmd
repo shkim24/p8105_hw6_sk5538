@@ -10,6 +10,8 @@ library(tidyverse)
 library(broom)
 library(ggplot2)
 library(purrr)
+library(modelr)
+library(rsample)
 ```
 
 
@@ -149,7 +151,123 @@ COMMENT ON THE PLOT
 
 ```{r}
 bw_df = read.csv("./data/birthweight.csv")
+glimpse(bw_df)
 ```
+
+```{r}
+bw_df <- bw_df |>
+  mutate(
+    babysex = factor(babysex, labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present"))
+  )
+
+bw_df |>
+  summarize(across(everything(), ~ sum(is.na(.))))
+```
+no missing values.
+
+
+
+
+The factors influencing birth weight (bwt) can include:
+
+Biological factors: bhead, blength, gaweeks, malform.
+Maternal factors: ppbmi, ppwt, wtgain, momage, mheigth, smoken.
+Socioeconomic factors: fincome, frace, mrace.
+
+```{r}
+# proposing a regression model
+
+bwt_model <- lm(bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace, 
+                data = bw_df)
+
+summary(bwt_model)
+
+```
+```{r}
+# model residual vs fitted values
+
+bw_df = bw_df |>
+  add_predictions(bwt_model)|>
+  add_residuals(bwt_model)
+
+ggplot(bw_df, aes(x=pred, y=resid))+
+  geom_point()+
+  geom_hline(yintercept=0, linetype = 'dashed')+
+  labs(
+    title = "residuals vs fitted values",
+    x = "predicted birth weight (fitted)",
+    y = "residuals"
+  )
+```
+
+```{r}
+# length and gestational age
+model2 <- lm(bwt ~ blength + gaweeks, data = bw_df)
+
+# head circumference, length, sex, all interactions
+model3 <- lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = bw_df)
+```
+
+
+```{r}
+set.seed(123)
+
+cv_splits = tibble(
+  splits = replicate(
+    100,
+    initial_split(bw_df, prop = 0.8), # 80% training, 20% testing
+    simplify = FALSE
+  )
+)
+
+calc_rmse = function (split, model_formula) {
+  train = analysis(split)
+  test = analysis(split)
+  
+  model = lm(model_formula, data = train)
+  
+  pred = predict(model, newdata = test)
+  
+  rmse = sqrt(mean((test$bwt - pred)^2, na.rm=TRUE))
+  
+  return(rmse)
+}
+```
+
+```{r}
+cv_res <- cv_splits |>
+  mutate(
+    rmse_model_proposed = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace)),
+    rmse_model2 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ blength + gaweeks)),
+    rmse_model3 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex))
+  )
+
+cv_res |>
+  summarise(
+    mean_rmse_proposed = mean(rmse_model_proposed),
+    mean_rmse_model2 = mean(rmse_model2),
+    mean_rmse_model3 = mean(rmse_model3)
+  )
+```
+```{r}
+rmse_long <- cv_res |>
+  select(rmse_model_proposed, rmse_model2, rmse_model3) |>
+  pivot_longer(cols = everything(), names_to = "model", values_to = "rmse")
+
+# Plot RMSE distributions
+ggplot(rmse_long, aes(x = model, y = rmse)) +
+  geom_boxplot() +
+  labs(title = "RMSE Comparison Across Models", x = "Model", y = "RMSE") +
+  theme_minimal()
+```
+
+
+
 
 
 
