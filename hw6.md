@@ -314,14 +314,17 @@ bw_df = read.csv("./data/birthweight.csv")|>
   )
 ```
 
-mother’s age, gestational age, mother’s pre-pregnancy BMI, mother’s
+Mother’s age, gestational age, mother’s pre-pregnancy BMI, mother’s
 weight gain, and father’s income are retained in my model because they
-are strong, well-established predictors of birthweight. Father’s and
-mother’s race are also included to account for socioeconomic and
-healthcare access differences. Father’s race and income could be
-related, therefore I will add them as an interaction term. Malformation
-is included because they directly affect birthweight by influencing
-fetal development.
+are strong, well-established predictors of birthweight.
+
+Father’s and mother’s race are also included to account for
+socioeconomic and healthcare access differences. Father’s race and
+income could be related, therefore I will add them as an interaction
+term.
+
+Malformation is included because they directly affect birthweight by
+influencing fetal development.
 
 ``` r
 bwt_model <- lm(bwt ~  delwt + momage + gaweeks + ppbmi + wtgain + fincome*frace  + mrace + malform,  data = bw_df)
