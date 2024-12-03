@@ -34,10 +34,6 @@ weather_df =
   select(name, id, everything())
 ```
 
-# estimates
-# plot the distribution of estimates, describe these in words.
-# identify the 2.5% and 97.5% quantiles to provide a 95% CI for each estimate. 
-
 ```{r}
 boot_weather = weather_df |> 
   bootstrap(n = 5000) |> 
@@ -64,6 +60,10 @@ boot_weather|>
     log_product_mean = mean(log(log_product), na.rm = TRUE),
     log_product_lower_ci = quantile(log(log_product), 0.025, na.rm = TRUE),
     log_product_upper_ci = quantile(log(log_product), 0.975, na.rm = TRUE)
+  )|>
+   knitr::kable(
+    format = "pipe",
+    caption = "Summary of Regression Model Statistics"
   )
 
 ```
@@ -124,7 +124,7 @@ homicide_df = read.csv("./data/homicide-data.csv")|>
 
 filtered = homicide_df|>
   filter(
-    !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"),
+    !city_state %in% c("Dallas,TX", "Phoenix,AZ", "Kansas City,MO", "Tulsa,AL"),
     victim_race %in% c("White", "Black"),
     !is.na(victim_age)
   )
@@ -140,22 +140,22 @@ baltimore_model = glm(
   data = baltimore_df
 )
 
-baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE) # true true?
+baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE)
 
 sex_diff = baltimore_results|>
   filter (term == "victim_sexMale")|>
-  select(estimate = estimate, conf.low, conf.high)
+  select(estimate = estimate, conf.low, conf.high)|>
+   knitr::kable(
+    format = "pipe"
+  )
 
 print(sex_diff)
 ```
 
+
 ```{r}
 city_model = filtered|>
   group_by(city_state)|>
-   filter(
-    n_distinct(victim_sex) > 1,  
-    n_distinct(victim_race) > 1   
-  ) |>
   nest()|>
   mutate(
     model = map(data, ~glm(solved ~ victim_age + victim_sex + victim_race, family = binomial, data = .x)),
@@ -164,6 +164,11 @@ city_model = filtered|>
   unnest(results)|>
   filter(term == "victim_sexMale")|>
   select(city_state, estimate = estimate, conf.low, conf.high)
+
+city_model|>
+   knitr::kable(
+    format = "pipe"
+  )
 ```
 
 ```{r}
@@ -181,17 +186,15 @@ ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
     axis.text.x = element_text(angle = 90, hjust = 1)  
   )
 ```
-COMMENT ON THE PLOT
+An adjusted odds ratio greater than 1 indicates that male victims are more likely to have their homicides solved compared to female victims. The adjusted odds ratios vary across cities. Cities with the error bars not crossing 1 suggest a significant difference in male and female victims' homicide being solved. If the error bar crosses 1, there is no significant difference.
+
+For instance, cities such as New York, San Antonio, Detroit and more show that female victims are more likely to have their homicides solved. 
+Cities such as Philadelphia and Atlanta show no signicifant difference. None of the cities show that male victims are more likley to have their homicides solved. 
 
 ## Problem 3
 
 ```{r}
-bw_df = read.csv("./data/birthweight.csv")
-glimpse(bw_df)
-```
-
-```{r}
-bw_df <- bw_df |>
+bw_df = read.csv("./data/birthweight.csv")|>
   mutate(
     babysex = factor(babysex, labels = c("Male", "Female")),
     frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
@@ -201,32 +204,19 @@ bw_df <- bw_df |>
     malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present"))
   )
 
-bw_df |>
-  summarize(across(everything(), ~ sum(is.na(.))))
 ```
-no missing values.
 
-
-
-
-The factors influencing birth weight (bwt) can include:
-
-Biological factors: bhead, blength, gaweeks, malform.
-Maternal factors: ppbmi, ppwt, wtgain, momage, mheigth, smoken.
-Socioeconomic factors: fincome, frace, mrace.
+mother’s age, gestational age, mother’s pre-pregnancy BMI, mother’s weight gain, and father’s income are retained in my model because they are strong, well-established predictors of birthweight.
+Father’s and mother’s race are also included to account for socioeconomic and healthcare access differences. Father's race and income could be related, therefore I will add them as an interaction term. 
+Malformation is included because they directly affect birthweight by influencing fetal development.
 
 ```{r}
-# proposing a regression model
-
-bwt_model <- lm(bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace, 
-                data = bw_df)
+bwt_model <- lm(bwt ~  delwt + momage + gaweeks + ppbmi + wtgain + fincome*frace  + mrace + malform,  data = bw_df)
 
 summary(bwt_model)
 
 ```
 ```{r}
-# model residual vs fitted values
-
 bw_df = bw_df |>
   add_predictions(bwt_model)|>
   add_residuals(bwt_model)
@@ -241,16 +231,7 @@ ggplot(bw_df, aes(x=pred, y=resid))+
   )
 ```
 
-```{r}
-# length and gestational age
-model2 <- lm(bwt ~ blength + gaweeks, data = bw_df)
-
-# head circumference, length, sex, all interactions
-model3 <- lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = bw_df)
-```
-
-
-
+The two models being compared to my proposed model are denoted as model2 and model3 respectively in the code below. 
 
 ```{r}
 cv_df = 
@@ -265,7 +246,7 @@ cv_df =cv_df |>
 ```{r}
 cv_df = cv_df |> 
   mutate(
-    model1  = map(train, \(df) lm(bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace, data = df)),
+    model1  = map(train, \(df) lm(bwt ~ babysex + delwt + momage + gaweeks + ppbmi + wtgain + fincome + frace + mrace + malform, data = df)),
     model2  = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
     model3  = map(train, \(df) lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = df))) |> 
   mutate(

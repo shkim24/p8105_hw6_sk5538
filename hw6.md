@@ -3,42 +3,18 @@ hw6
 Senna
 2024-11-30
 
+Necessary packages are loaded.
+
 ``` r
 library(tidyverse)
-```
-
-    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
-    ## ✔ dplyr     1.1.4     ✔ readr     2.1.5
-    ## ✔ forcats   1.0.0     ✔ stringr   1.5.1
-    ## ✔ ggplot2   3.5.1     ✔ tibble    3.2.1
-    ## ✔ lubridate 1.9.3     ✔ tidyr     1.3.1
-    ## ✔ purrr     1.0.2     
-    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
-    ## ✖ dplyr::filter() masks stats::filter()
-    ## ✖ dplyr::lag()    masks stats::lag()
-    ## ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
-
-``` r
 library(broom)
 library(ggplot2)
 library(purrr)
 library(modelr)
-```
-
-    ## Warning: package 'modelr' was built under R version 4.4.2
-
-    ## 
-    ## Attaching package: 'modelr'
-    ## 
-    ## The following object is masked from 'package:broom':
-    ## 
-    ##     bootstrap
-
-``` r
 library(rsample)
-```
 
-    ## Warning: package 'rsample' was built under R version 4.4.2
+set.seed(123)
+```
 
 ## Problem 1
 
@@ -63,72 +39,104 @@ weather_df =
     ## file min/max dates: 1869-01-01 / 2024-11-30
 
 ``` r
-n_boot = 5000
+boot_weather = weather_df |> 
+  bootstrap(n = 5000) |> 
+  mutate(
+    models = map(strap, \(df) lm(tmax ~ tmin, data = df)),
+    glance_results = map(models, broom::glance),
+    tidy_results = map(models, broom::tidy)
+  ) |> 
+  select(-strap, -models) |> 
+  unnest(cols = c(glance_results, tidy_results), names_sep = "_") 
 
-boot_results = replicate (n_boot, {
-  sample = weather_df %>% sample_frac(replace = TRUE) #why true?
-  
-  model = lm(tmax ~tmin, data= sample)
-  
-  r_sqr = glance(model)$r.squared
-  
-  coefs = tidy(model)
-  log_beta = log(coefs$estimate[1] * coefs$estimate[2])
-  
-  c(r_sqr, log_beta)
-  
-}, simplify = "matrix")
 
-boot_results = t(boot_results)
-colnames(boot_results) = c("r_sqr", "log_beta")
-
-bootstrap_df = as.data.frame(boot_results)
+boot_weather|> 
+  summarize(
+    r_squared_mean = mean(glance_results_r.squared, na.rm = TRUE),
+    r_squared_lower_ci = quantile(glance_results_r.squared, 0.025, na.rm = TRUE),
+    r_squared_upper_ci = quantile(glance_results_r.squared, 0.975, na.rm = TRUE),
+    log_product = ifelse(
+      all(c("(Intercept)", "tmin") %in% tidy_results_term),
+      tidy_results_estimate[tidy_results_term == "(Intercept)"] * 
+      tidy_results_estimate[tidy_results_term == "tmin"],
+      NA_real_
+    ),
+    log_product_mean = mean(log(log_product), na.rm = TRUE),
+    log_product_lower_ci = quantile(log(log_product), 0.025, na.rm = TRUE),
+    log_product_upper_ci = quantile(log(log_product), 0.975, na.rm = TRUE)
+  )|>
+   knitr::kable(
+    format = "pipe",
+    caption = "Summary of Regression Model Statistics"
+  )
 ```
 
-``` r
-ci_r_sqr = quantile(bootstrap_df$r_sqr, probs = c(0.025,0.975))
-ci_log_beta = quantile(bootstrap_df$log_beta, probs = c(0.025, 0.975))
+| r_squared_mean | r_squared_lower_ci | r_squared_upper_ci | log_product | log_product_mean | log_product_lower_ci | log_product_upper_ci |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.9115107 | 0.8945701 | 0.9271042 | 7.836235 | 2.058759 | 2.058759 | 2.058759 |
 
-print("95% CI for R^2:")
+Summary of Regression Model Statistics
+
+``` r
+boot_results = boot_weather|>
+  filter(tidy_results_term %in% c("(Intercept)", "tmin")) |> 
+  group_by(glance_results_r.squared) |> 
+  summarize(
+    r_squared = glance_results_r.squared,
+    log_product = log(
+      tidy_results_estimate[tidy_results_term == "(Intercept)"] *
+      tidy_results_estimate[tidy_results_term == "tmin"]
+    )
+  )
 ```
 
-    ## [1] "95% CI for R^2:"
+    ## Warning: Returning more (or less) than 1 row per `summarise()` group was deprecated in
+    ## dplyr 1.1.0.
+    ## ℹ Please use `reframe()` instead.
+    ## ℹ When switching from `summarise()` to `reframe()`, remember that `reframe()`
+    ##   always returns an ungrouped data frame and adjust accordingly.
+    ## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+    ## generated.
+
+    ## `summarise()` has grouped output by 'glance_results_r.squared'. You can
+    ## override using the `.groups` argument.
+
+###### r2 plot
 
 ``` r
-print(ci_r_sqr)
-```
-
-    ##      2.5%     97.5% 
-    ## 0.8935250 0.9274094
-
-``` r
-print("95% CI for log(β^0 * β^1):")
-```
-
-    ## [1] "95% CI for log(β^0 * β^1):"
-
-``` r
-print(ci_log_beta)
-```
-
-    ##     2.5%    97.5% 
-    ## 1.963406 2.059195
-
-``` r
-ggplot(bootstrap_df, aes(x = r_sqr))+
+ggplot(boot_results, aes(x = r_squared)) +
   geom_density (color ='red', alpha = 0.5)+
-  labs(title = "bootstap distribution of R^2", x="R^2", y="density")
+  theme_minimal() +
+  labs(
+    title = "Distribution of R^2 from Bootstrapped Samples",
+    x = expression(R^2),
+    y = "Frequency"
+  )
 ```
 
 ![](hw6_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
+###### log product plot
+
 ``` r
-ggplot(bootstrap_df, aes(x = log_beta))+
-  geom_density (color='blue',alpha = 0.5)+
-  labs(title = "bootstap distribution of log(β^0 * β^1)", x="R^2", y="density")
+ggplot(boot_results, aes(x = log_product)) +
+  geom_density (color ='blue', alpha = 0.5)+
+  theme_minimal() +
+  labs(
+    title = "Distribution of log(β^0 ∗ β^1) from Bootstrapped Samples",
+    x = expression(log(beta^0 * beta^1)),
+    y = "Frequency"
+  )
 ```
 
-![](hw6_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
+![](hw6_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+The log product follows a normal distribution. We had n=5000 for
+bootstrapping, which is a large sample size. This invokes the Central
+Limit Theorem.
+
+r^2 plot shows a left skew. r^2 values are bounded between 0 and 1, and
+in our case, the estimate is close to 1.
 
 ## Problem 2
 
@@ -152,7 +160,7 @@ homicide_df = read.csv("./data/homicide-data.csv")|>
 ``` r
 filtered = homicide_df|>
   filter(
-    !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"),
+    !city_state %in% c("Dallas,TX", "Phoenix,AZ", "Kansas City,MO", "Tulsa,AL"),
     victim_race %in% c("White", "Black"),
     !is.na(victim_age)
   )
@@ -168,27 +176,27 @@ baltimore_model = glm(
   data = baltimore_df
 )
 
-baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE) # true true?
+baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE)
 
 sex_diff = baltimore_results|>
   filter (term == "victim_sexMale")|>
-  select(estimate = estimate, conf.low, conf.high)
+  select(estimate = estimate, conf.low, conf.high)|>
+   knitr::kable(
+    format = "pipe"
+  )
 
 print(sex_diff)
 ```
 
-    ## # A tibble: 1 × 3
-    ##   estimate conf.low conf.high
-    ##      <dbl>    <dbl>     <dbl>
-    ## 1    0.426    0.324     0.558
+    ## 
+    ## 
+    ## |  estimate|  conf.low| conf.high|
+    ## |---------:|---------:|---------:|
+    ## | 0.4255117| 0.3241908| 0.5575508|
 
 ``` r
 city_model = filtered|>
   group_by(city_state)|>
-   filter(
-    n_distinct(victim_sex) > 1,  
-    n_distinct(victim_race) > 1   
-  ) |>
   nest()|>
   mutate(
     model = map(data, ~glm(solved ~ victim_age + victim_sex + victim_race, family = binomial, data = .x)),
@@ -208,6 +216,63 @@ city_model = filtered|>
     ## ℹ Run `dplyr::last_dplyr_warnings()` to see the 42 remaining warnings.
 
 ``` r
+city_model|>
+   knitr::kable(
+    format = "pipe"
+  )
+```
+
+| city_state        |  estimate |  conf.low | conf.high |
+|:------------------|----------:|----------:|----------:|
+| Albuquerque,NM    | 1.7674995 | 0.8247081 | 3.7618600 |
+| Atlanta,GA        | 1.0000771 | 0.6803477 | 1.4582575 |
+| Baltimore,MD      | 0.4255117 | 0.3241908 | 0.5575508 |
+| Baton Rouge,LA    | 0.3814393 | 0.2043481 | 0.6836343 |
+| Birmingham,AL     | 0.8700153 | 0.5713814 | 1.3138409 |
+| Boston,MA         | 0.6739912 | 0.3534469 | 1.2768225 |
+| Buffalo,NY        | 0.5205704 | 0.2884416 | 0.9358300 |
+| Charlotte,NC      | 0.8838976 | 0.5507440 | 1.3905954 |
+| Chicago,IL        | 0.4100982 | 0.3361233 | 0.5008546 |
+| Cincinnati,OH     | 0.3998277 | 0.2313767 | 0.6670456 |
+| Columbus,OH       | 0.5324845 | 0.3770457 | 0.7479124 |
+| Denver,CO         | 0.4790620 | 0.2327380 | 0.9624974 |
+| Detroit,MI        | 0.5823472 | 0.4619454 | 0.7335458 |
+| Durham,NC         | 0.8123514 | 0.3824420 | 1.6580169 |
+| Fort Worth,TX     | 0.6689803 | 0.3935128 | 1.1211603 |
+| Fresno,CA         | 1.3351647 | 0.5672553 | 3.0475080 |
+| Houston,TX        | 0.7110264 | 0.5569844 | 0.9057376 |
+| Indianapolis,IN   | 0.9187284 | 0.6784616 | 1.2413059 |
+| Jacksonville,FL   | 0.7198144 | 0.5359236 | 0.9650986 |
+| Las Vegas,NV      | 0.8373078 | 0.6058830 | 1.1510854 |
+| Long Beach,CA     | 0.4102163 | 0.1427304 | 1.0241775 |
+| Los Angeles,CA    | 0.6618816 | 0.4565014 | 0.9541036 |
+| Louisville,KY     | 0.4905546 | 0.3014879 | 0.7836391 |
+| Memphis,TN        | 0.7232194 | 0.5261210 | 0.9835973 |
+| Miami,FL          | 0.5152379 | 0.3040214 | 0.8734480 |
+| Milwaukee,wI      | 0.7271327 | 0.4951325 | 1.0542297 |
+| Minneapolis,MN    | 0.9469587 | 0.4759016 | 1.8809745 |
+| Nashville,TN      | 1.0342379 | 0.6807452 | 1.5559966 |
+| New Orleans,LA    | 0.5849373 | 0.4218807 | 0.8121787 |
+| New York,NY       | 0.2623978 | 0.1327512 | 0.4850117 |
+| Oakland,CA        | 0.5630819 | 0.3637421 | 0.8671086 |
+| Oklahoma City,OK  | 0.9740747 | 0.6228507 | 1.5199721 |
+| Omaha,NE          | 0.3824861 | 0.1988357 | 0.7109316 |
+| Philadelphia,PA   | 0.4962756 | 0.3760120 | 0.6498797 |
+| Pittsburgh,PA     | 0.4307528 | 0.2626022 | 0.6955518 |
+| Richmond,VA       | 1.0060520 | 0.4834671 | 1.9936248 |
+| San Antonio,TX    | 0.7046200 | 0.3928179 | 1.2382509 |
+| Sacramento,CA     | 0.6688418 | 0.3262733 | 1.3143888 |
+| Savannah,GA       | 0.8669817 | 0.4185827 | 1.7802453 |
+| San Bernardino,CA | 0.5003444 | 0.1655367 | 1.4623977 |
+| San Diego,CA      | 0.4130248 | 0.1913527 | 0.8301847 |
+| San Francisco,CA  | 0.6075362 | 0.3116925 | 1.1551470 |
+| St. Louis,MO      | 0.7031665 | 0.5298505 | 0.9319005 |
+| Stockton,CA       | 1.3517273 | 0.6256427 | 2.9941299 |
+| Tampa,FL          | 0.8077029 | 0.3395253 | 1.8598834 |
+| Tulsa,OK          | 0.9757694 | 0.6090664 | 1.5439356 |
+| Washington,DC     | 0.6901713 | 0.4653608 | 1.0122516 |
+
+``` r
 ordered_results = city_model|> arrange(estimate)
 
 ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
@@ -223,41 +288,24 @@ ggplot(ordered_results, aes(x= reorder(city_state, estimate), y = estimate))+
   )
 ```
 
-![](hw6_files/figure-gfm/unnamed-chunk-9-1.png)<!-- --> COMMENT ON THE
-PLOT
+![](hw6_files/figure-gfm/unnamed-chunk-10-1.png)<!-- --> An adjusted
+odds ratio greater than 1 indicates that male victims are more likely to
+have their homicides solved compared to female victims. The adjusted
+odds ratios vary across cities. Cities with the error bars not crossing
+1 suggest a significant difference in male and female victims’ homicide
+being solved. If the error bar crosses 1, there is no significant
+difference.
+
+For instance, cities such as New York, San Antonio, Detroit and more
+show that female victims are more likely to have their homicides solved.
+Cities such as Philadelphia and Atlanta show no signicifant difference.
+None of the cities show that male victims are more likley to have their
+homicides solved.
 
 ## Problem 3
 
 ``` r
-bw_df = read.csv("./data/birthweight.csv")
-glimpse(bw_df)
-```
-
-    ## Rows: 4,342
-    ## Columns: 20
-    ## $ babysex  <int> 2, 1, 2, 1, 2, 1, 2, 2, 1, 1, 2, 1, 2, 1, 1, 2, 1, 2, 2, 2, 1…
-    ## $ bhead    <int> 34, 34, 36, 34, 34, 33, 33, 33, 36, 33, 35, 35, 35, 36, 35, 3…
-    ## $ blength  <int> 51, 48, 50, 52, 52, 52, 46, 49, 52, 50, 51, 51, 48, 53, 51, 4…
-    ## $ bwt      <int> 3629, 3062, 3345, 3062, 3374, 3374, 2523, 2778, 3515, 3459, 3…
-    ## $ delwt    <int> 177, 156, 148, 157, 156, 129, 126, 140, 146, 169, 130, 146, 1…
-    ## $ fincome  <int> 35, 65, 85, 55, 5, 55, 96, 5, 85, 75, 55, 55, 75, 75, 65, 75,…
-    ## $ frace    <int> 1, 2, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1…
-    ## $ gaweeks  <dbl> 39.9, 25.9, 39.9, 40.0, 41.6, 40.7, 40.3, 37.4, 40.3, 40.7, 4…
-    ## $ malform  <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0…
-    ## $ menarche <int> 13, 14, 12, 14, 13, 12, 14, 12, 11, 12, 13, 12, 13, 11, 12, 1…
-    ## $ mheight  <int> 63, 65, 64, 64, 66, 66, 72, 62, 61, 64, 67, 62, 64, 68, 62, 6…
-    ## $ momage   <int> 36, 25, 29, 18, 20, 23, 29, 19, 13, 19, 23, 16, 28, 23, 21, 1…
-    ## $ mrace    <int> 1, 2, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1…
-    ## $ parity   <int> 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0…
-    ## $ pnumlbw  <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0…
-    ## $ pnumsga  <int> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0…
-    ## $ ppbmi    <dbl> 26.27184, 21.34485, 23.56517, 21.84508, 21.02642, 18.60030, 1…
-    ## $ ppwt     <int> 148, 128, 137, 127, 130, 115, 105, 119, 105, 145, 110, 115, 1…
-    ## $ smoken   <dbl> 0.000, 0.000, 1.000, 10.000, 1.000, 0.000, 0.000, 0.000, 0.00…
-    ## $ wtgain   <int> 29, 28, 11, 30, 26, 14, 21, 21, 41, 24, 20, 31, 23, 21, 24, 2…
-
-``` r
-bw_df <- bw_df |>
+bw_df = read.csv("./data/birthweight.csv")|>
   mutate(
     babysex = factor(babysex, labels = c("Male", "Female")),
     frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
@@ -266,71 +314,61 @@ bw_df <- bw_df |>
                    labels = c("White", "Black", "Asian", "Puerto Rican", "Other")),
     malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present"))
   )
-
-bw_df |>
-  summarize(across(everything(), ~ sum(is.na(.))))
 ```
 
-    ##   babysex bhead blength bwt delwt fincome frace gaweeks malform menarche
-    ## 1       0     0       0   0     0       0     0       0       0        0
-    ##   mheight momage mrace parity pnumlbw pnumsga ppbmi ppwt smoken wtgain
-    ## 1       0      0     0      0       0       0     0    0      0      0
-
-no missing values.
-
-The factors influencing birth weight (bwt) can include:
-
-Biological factors: bhead, blength, gaweeks, malform. Maternal factors:
-ppbmi, ppwt, wtgain, momage, mheigth, smoken. Socioeconomic factors:
-fincome, frace, mrace.
+mother’s age, gestational age, mother’s pre-pregnancy BMI, mother’s
+weight gain, and father’s income are retained in my model because they
+are strong, well-established predictors of birthweight. Father’s and
+mother’s race are also included to account for socioeconomic and
+healthcare access differences. Father’s race and income could be
+related, therefore I will add them as an interaction term. Malformation
+is included because they directly affect birthweight by influencing
+fetal development.
 
 ``` r
-# proposing a regression model
-
-bwt_model <- lm(bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace, 
-                data = bw_df)
+bwt_model <- lm(bwt ~  delwt + momage + gaweeks + ppbmi + wtgain + fincome*frace  + mrace + malform,  data = bw_df)
 
 summary(bwt_model)
 ```
 
     ## 
     ## Call:
-    ## lm(formula = bwt ~ bhead + blength + gaweeks + malform + ppbmi + 
-    ##     ppwt + wtgain + momage + mheight + smoken + fincome + frace, 
-    ##     data = bw_df)
+    ## lm(formula = bwt ~ delwt + momage + gaweeks + ppbmi + wtgain + 
+    ##     fincome * frace + mrace + malform, data = bw_df)
     ## 
     ## Residuals:
-    ##      Min       1Q   Median       3Q      Max 
-    ## -1110.89  -180.49    -1.91   173.85  2338.53 
+    ##     Min      1Q  Median      3Q     Max 
+    ## -1641.7  -264.9     9.7   277.5  1436.7 
     ## 
     ## Coefficients:
-    ##                     Estimate Std. Error t value Pr(>|t|)    
-    ## (Intercept)       -6260.9039   660.2135  -9.483  < 2e-16 ***
-    ## bhead               128.9507     3.4183  37.723  < 2e-16 ***
-    ## blength              74.8358     2.0258  36.942  < 2e-16 ***
-    ## gaweeks              11.8092     1.4575   8.103 6.94e-16 ***
-    ## malformPresent        6.5226    70.8121   0.092   0.9266    
-    ## ppbmi                 4.6527    14.9194   0.312   0.7552    
-    ## ppwt                  0.6628     2.5886   0.256   0.7979    
-    ## wtgain                4.1705     0.3952  10.552  < 2e-16 ***
-    ## momage                0.6368     1.1966   0.532   0.5946    
-    ## mheight               9.9687    10.3330   0.965   0.3347    
-    ## smoken               -4.8790     0.5871  -8.310  < 2e-16 ***
-    ## fincome               0.2991     0.1796   1.666   0.0958 .  
-    ## fraceBlack         -135.0116    10.2600 -13.159  < 2e-16 ***
-    ## fraceAsian          -58.2338    41.3446  -1.408   0.1591    
-    ## fracePuerto Rican  -100.2145    19.1987  -5.220 1.87e-07 ***
-    ## fraceOther          -33.2495    73.4192  -0.453   0.6507    
+    ##                            Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)                390.4922   100.1038   3.901 9.73e-05 ***
+    ## delwt                        7.4596     0.6445  11.575  < 2e-16 ***
+    ## momage                       0.5394     1.8886   0.286  0.77517    
+    ## gaweeks                     52.7598     2.1409  24.644  < 2e-16 ***
+    ## ppbmi                      -20.4736     4.0605  -5.042 4.79e-07 ***
+    ## wtgain                       2.2742     0.9036   2.517  0.01187 *  
+    ## fincome                      0.9375     0.3531   2.655  0.00796 ** 
+    ## fraceBlack                 -52.6714    76.8526  -0.685  0.49316    
+    ## fraceAsian                 116.3212   164.9916   0.705  0.48084    
+    ## fracePuerto Rican          -27.5280   103.5112  -0.266  0.79030    
+    ## fraceOther                -209.2910   195.7841  -1.069  0.28513    
+    ## mraceBlack                -118.4771    72.9381  -1.624  0.10437    
+    ## mraceAsian                  23.7555   113.9081   0.209  0.83481    
+    ## mracePuerto Rican          -25.1365    71.3597  -0.352  0.72467    
+    ## malformPresent             -66.2429   111.4221  -0.595  0.55219    
+    ## fincome:fraceBlack          -1.6103     0.5874  -2.742  0.00614 ** 
+    ## fincome:fraceAsian          -3.2522     2.9711  -1.095  0.27375    
+    ## fincome:fracePuerto Rican   -0.3299     1.9529  -0.169  0.86585    
+    ## fincome:fraceOther           5.5515     4.7160   1.177  0.23919    
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
-    ## Residual standard error: 273.2 on 4326 degrees of freedom
-    ## Multiple R-squared:  0.7163, Adjusted R-squared:  0.7154 
-    ## F-statistic: 728.3 on 15 and 4326 DF,  p-value: < 2.2e-16
+    ## Residual standard error: 430.2 on 4323 degrees of freedom
+    ## Multiple R-squared:  0.2975, Adjusted R-squared:  0.2946 
+    ## F-statistic: 101.7 on 18 and 4323 DF,  p-value: < 2.2e-16
 
 ``` r
-# model residual vs fitted values
-
 bw_df = bw_df |>
   add_predictions(bwt_model)|>
   add_residuals(bwt_model)
@@ -347,70 +385,41 @@ ggplot(bw_df, aes(x=pred, y=resid))+
 
 ![](hw6_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
 
-``` r
-# length and gestational age
-model2 <- lm(bwt ~ blength + gaweeks, data = bw_df)
-
-# head circumference, length, sex, all interactions
-model3 <- lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = bw_df)
-```
+The two models being compared to my proposed model are denoted as model2
+and model3 respectively in the code below.
 
 ``` r
-set.seed(123)
+cv_df = 
+  crossv_mc(bw_df, 100)
 
-cv_splits = tibble(
-  splits = replicate(
-    100,
-    initial_split(bw_df, prop = 0.8), # 80% training, 20% testing
-    simplify = FALSE
-  )
-)
-
-calc_rmse = function (split, model_formula) {
-  train = analysis(split)
-  test = analysis(split)
-  
-  model = lm(model_formula, data = train)
-  
-  pred = predict(model, newdata = test)
-  
-  rmse = sqrt(mean((test$bwt - pred)^2, na.rm=TRUE))
-  
-  return(rmse)
-}
-```
-
-``` r
-cv_res <- cv_splits |>
+cv_df =cv_df |> 
   mutate(
-    rmse_model_proposed = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + gaweeks + malform + ppbmi + ppwt + wtgain + momage + mheight + smoken + fincome + frace)),
-    rmse_model2 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ blength + gaweeks)),
-    rmse_model3 = map_dbl(splits, ~ calc_rmse(.x, model_formula = bwt ~ bhead + blength + babysex + bhead * blength + bhead * babysex + blength * babysex + bhead * blength * babysex))
-  )
-
-cv_res |>
-  summarise(
-    mean_rmse_proposed = mean(rmse_model_proposed),
-    mean_rmse_model2 = mean(rmse_model2),
-    mean_rmse_model3 = mean(rmse_model3)
-  )
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
 ```
-
-    ## # A tibble: 1 × 3
-    ##   mean_rmse_proposed mean_rmse_model2 mean_rmse_model3
-    ##                <dbl>            <dbl>            <dbl>
-    ## 1               272.             333.             287.
 
 ``` r
-rmse_long <- cv_res |>
-  select(rmse_model_proposed, rmse_model2, rmse_model3) |>
-  pivot_longer(cols = everything(), names_to = "model", values_to = "rmse")
-
-# Plot RMSE distributions
-ggplot(rmse_long, aes(x = model, y = rmse)) +
-  geom_boxplot() +
-  labs(title = "RMSE Comparison Across Models", x = "Model", y = "RMSE") +
-  theme_minimal()
+cv_df = cv_df |> 
+  mutate(
+    model1  = map(train, \(df) lm(bwt ~ babysex + delwt + momage + gaweeks + ppbmi + wtgain + fincome + frace + mrace + malform, data = df)),
+    model2  = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    model3  = map(train, \(df) lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead * blength * babysex, data = df))) |> 
+  mutate(
+    rmse_1 = map2_dbl(model1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_2 = map2_dbl(model2, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_3 = map2_dbl(model3, test, \(mod, df) rmse(model = mod, data = df)))
 ```
 
-![](hw6_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+``` r
+cv_df |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+![](hw6_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
