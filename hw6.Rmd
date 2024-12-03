@@ -144,12 +144,12 @@ baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE)
 
 sex_diff = baltimore_results|>
   filter (term == "victim_sexMale")|>
-  select(estimate = estimate, conf.low, conf.high)|>
+  select(estimate = estimate, conf.low, conf.high)
+
+sex_diff|>
    knitr::kable(
     format = "pipe"
   )
-
-print(sex_diff)
 ```
 
 
@@ -266,7 +266,11 @@ cv_df |>
   mutate(model = fct_inorder(model)) |> 
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
+The violin for model 1 (my proposed model) is wider and is at the higher end of the RMSE range. This indicates a higher variance in the RMSE values and that the predictions are less consistent.
 
+Model 3 performs better than model 1 and 2 since its violin is at the lower RMSE values with less variance. 
+
+Overall, model 3 performs the best out of the three, with model 2 outperforming model 1. 
 
 
 

@@ -180,19 +180,17 @@ baltimore_results = tidy(baltimore_model, conf.int = TRUE, exp = TRUE)
 
 sex_diff = baltimore_results|>
   filter (term == "victim_sexMale")|>
-  select(estimate = estimate, conf.low, conf.high)|>
+  select(estimate = estimate, conf.low, conf.high)
+
+sex_diff|>
    knitr::kable(
     format = "pipe"
   )
-
-print(sex_diff)
 ```
 
-    ## 
-    ## 
-    ## |  estimate|  conf.low| conf.high|
-    ## |---------:|---------:|---------:|
-    ## | 0.4255117| 0.3241908| 0.5575508|
+|  estimate |  conf.low | conf.high |
+|----------:|----------:|----------:|
+| 0.4255117 | 0.3241908 | 0.5575508 |
 
 ``` r
 city_model = filtered|>
@@ -422,4 +420,13 @@ cv_df |>
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
-![](hw6_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+![](hw6_files/figure-gfm/unnamed-chunk-16-1.png)<!-- --> The violin for
+model 1 (my proposed model) is wider and is at the higher end of the
+RMSE range. This indicates a higher variance in the RMSE values and that
+the predictions are less consistent.
+
+Model 3 performs better than model 1 and 2 since its violin is at the
+lower RMSE values with less variance.
+
+Overall, model 3 performs the best out of the three, with model 2
+outperforming model 1.
